@@ -1,41 +1,74 @@
 <?php
-/**
- * Requests collector.
- *
- *  This file collects requests if:
- *	- no mod_rewrite is available or .htaccess files are not supported
- *  - requires App.baseUrl to be uncommented in app/Config/core.php
- *	- app/webroot is not set as a document root.
- *
- * CakePHP(tm) : Rapid Development Framework (https://cakephp.org)
- * Copyright (c) Cake Software Foundation, Inc. (https://cakefoundation.org)
- *
- * Licensed under The MIT License
- * For full copyright and license information, please see the LICENSE.txt
- * Redistributions of files must retain the above copyright notice.
- *
- * @copyright     Copyright (c) Cake Software Foundation, Inc. (https://cakefoundation.org)
- * @link          https://cakephp.org CakePHP(tm) Project
- * @since         CakePHP(tm) v 0.2.9
- * @license       https://opensource.org/licenses/mit-license.php MIT License
- */
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
-/**
- *  Get CakePHP's root directory
- */
-define('APP_DIR', 'app');
-define('DS', DIRECTORY_SEPARATOR);
-define('ROOT', dirname(__FILE__));
-define('WEBROOT_DIR', 'webroot');
-define('WWW_ROOT', ROOT . DS . APP_DIR . DS . WEBROOT_DIR . DS);
-
-/**
- * This only needs to be changed if the "cake" directory is located
- * outside of the distributed structure.
- * Full path to the directory containing "cake". Do not add trailing directory separator
- */
-if (!defined('CAKE_CORE_INCLUDE_PATH')) {
-	define('CAKE_CORE_INCLUDE_PATH', ROOT . DS . 'lib');
+if (!function_exists('curl_init')) {
+    echo "<h1>ERRO: A extensao CURL nao esta instalada neste servidor.</h1>";
+    echo "<p>Precisamos criar um arquivo composer.json para o Railway instalar o CURL.</p>";
+    phpinfo();
+    exit;
 }
 
-require APP_DIR . DS . WEBROOT_DIR . DS . 'index.php';
+// Configurações para o teste (Coloquei as chaves que você passou)
+$apiKey = 'ip6nPKnTduhzOCfWQwvE9GrJ6dZefoYmHc0T8vQQwVR76Y9B270OYw0TKg557oFB';
+$apiSecret = 'MdH21FCvAwabxHjZvmM3L89HC88ddZO8nivf0yxaOnnZ1UcGtjGcsSxToFKo3DF7';
+
+header('Content-Type: text/html; charset=utf-8');
+echo "<h2>Teste de Conexao Binance API</h2>";
+
+function testBinance($url, $apiKey, $apiSecret, $params = []) {
+    // 1. Pegar tempo
+    $chTime = curl_init('https://api.binance.com/api/v3/time');
+    curl_setopt($chTime, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($chTime, CURLOPT_SSL_VERIFYPEER, false);
+    $timeRes = curl_exec($chTime);
+    $serverTime = json_decode($timeRes, true)['serverTime'] ?? null;
+    curl_close($chTime);
+
+    if (!$serverTime) {
+        return "ERRO: Não conseguiu pegar o tempo da Binance. Servidor pode estar bloqueado.";
+    }
+
+    // 2. Assinar
+    $params['timestamp'] = $serverTime;
+    ksort($params);
+    $query = http_build_query($params);
+    $signature = hash_hmac('sha256', $query, $apiSecret);
+    $fullUrl = $url . "?" . $query . "&signature=" . $signature;
+
+    // 3. Chamar
+    $ch = curl_init($fullUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ["X-MBX-APIKEY: $apiKey"],
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT => 15
+    ]);
+
+    $response = curl_exec($ch);
+    $err = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return [
+        'http_code' => $httpCode,
+        'response' => $response,
+        'curl_error' => $err
+    ];
+}
+
+// Teste 1: Histórico de Pay
+echo "<h3>1. Testando Histórico de Pay (C2C):</h3>";
+$resPay = testBinance('https://api.binance.com/sapi/v1/pay/transactions', $apiKey, $apiSecret);
+echo "<pre>"; print_r($resPay); echo "</pre>";
+
+// Teste 2: Histórico de Depósitos (Carteira)
+echo "<h3>2. Testando Histórico de Depósitos (Wallet):</h3>";
+$resWallet = testBinance('https://api.binance.com/sapi/v1/capital/deposit/hisrec', $apiKey, $apiSecret);
+echo "<pre>"; print_r($resWallet); echo "</pre>";
+
+// Teste 3: Status da Conta (Para ver se as chaves valem)
+echo "<h3>3. Testando Permissões da Conta:</h3>";
+$resAccount = testBinance('https://api.binance.com/api/v3/account', $apiKey, $apiSecret);
+echo "<pre>"; print_r($resAccount); echo "</pre>";
+?>
